@@ -1,0 +1,164 @@
+import sqlite3
+import tkinter as tk
+from tkinter import messagebox
+
+# Conectar ou criar o banco de dados
+conn = sqlite3.connect('ping_pong.db')
+cursor = conn.cursor()
+
+# Criar tabelas de jogadores e partidas, se não existirem
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS partidas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vencedor TEXT NOT NULL,
+    perdedor TEXT NOT NULL,
+    placar_vencedor INTEGER,
+    placar_perdedor INTEGER,
+    data_partida TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+''')
+
+conn.commit()
+
+# Variáveis globais
+fila_jogadores = []
+vencedor_atual = None
+checkboxes = {}
+
+# Funções para o sistema
+def adicionar_jogador(nome):
+    """Adiciona um jogador à fila e atualiza a exibição."""
+    if nome and nome not in fila_jogadores:
+        fila_jogadores.append(nome)
+        atualizar_fila()
+        entry_jogador.delete(0, tk.END)  # Limpa o campo de entrada
+
+def remover_jogador(nome):
+    """Remove um jogador da fila, se presente, e atualiza a exibição."""
+    if nome in fila_jogadores:
+        fila_jogadores.remove(nome)
+        atualizar_fila()
+    else:
+        messagebox.showwarning("Aviso", "O jogador não está na fila.")
+
+def atualizar_fila():
+    """Atualiza a exibição da fila de jogadores."""
+    global checkboxes
+    for widget in frame_checkboxes.winfo_children():
+        widget.destroy()  # Limpa os widgets antigos
+
+    checkboxes = {}
+    for jogador in fila_jogadores:
+        var = tk.BooleanVar(value=True)
+        chk = tk.Checkbutton(frame_checkboxes, text=jogador, variable=var)
+        chk.pack(anchor=tk.W)
+        checkboxes[jogador] = var
+
+def proximo_jogo():
+    """Inicia o próximo jogo com o vencedor atual e o próximo jogador da fila."""
+    global vencedor_atual
+    if len(fila_jogadores) < 1:
+        messagebox.showinfo("Info", "Não há jogadores suficientes para iniciar um jogo.")
+        return
+    
+    if vencedor_atual is None:  # Se não há vencedor atual, pegue os dois primeiros da fila
+        jogador1 = fila_jogadores.pop(0)
+        jogador2 = fila_jogadores.pop(0)
+    else:  # Caso contrário, o vencedor atual joga contra o próximo da fila
+        jogador1 = vencedor_atual
+        jogador2 = fila_jogadores.pop(0)
+    
+    lbl_jogo_atual.config(text=f"{jogador1} vs {jogador2}")
+    return jogador1, jogador2
+
+def registrar_partida():
+    """Registra o resultado da partida e atualiza a fila."""
+    global vencedor_atual
+    vencedor = entry_vencedor.get()
+    perdedor = entry_perdedor.get()
+    placar_vencedor = entry_placar_vencedor.get()
+    placar_perdedor = entry_placar_perdedor.get()
+    
+    if not all([vencedor, perdedor, placar_vencedor, placar_perdedor]):
+        messagebox.showwarning("Aviso", "Preencha todos os campos para registrar a partida.")
+        return
+
+    cursor.execute('''
+        INSERT INTO partidas (vencedor, perdedor, placar_vencedor, placar_perdedor)
+        VALUES (?, ?, ?, ?)
+    ''', (vencedor, perdedor, placar_vencedor, placar_perdedor))
+    conn.commit()
+
+    # Atualiza a fila com os jogadores restantes (desmarcados)
+    jogadores_removidos = [jogador for jogador, var in checkboxes.items() if not var.get()]
+    for jogador in jogadores_removidos:
+        if jogador in fila_jogadores:
+            fila_jogadores.remove(jogador)
+    fila_jogadores.append(perdedor)  # Perdedor vai para o final da fila
+
+    if vencedor != vencedor_atual:  # Se o vencedor mudou, atualize o vencedor_atual
+        vencedor_atual = vencedor
+
+    atualizar_fila()
+    limpar_campos()
+    proximo_jogo()  # Chama o próximo jogo automaticamente após registrar a partida
+
+def exibir_historico():
+    """Exibe o histórico de partidas em uma nova janela."""
+    cursor.execute('SELECT vencedor, perdedor, placar_vencedor, placar_perdedor, data_partida FROM partidas')
+    partidas = cursor.fetchall()
+    
+    historico_window = tk.Toplevel(window)
+    historico_window.title("Histórico de Partidas")
+
+    for partida in partidas:
+        vencedor, perdedor, placar_vencedor, placar_perdedor, data_partida = partida
+        label = tk.Label(historico_window, text=f"{data_partida}: {vencedor} {placar_vencedor} x {placar_perdedor} {perdedor}")
+        label.pack()
+
+def limpar_campos():
+    """Limpa os campos de entrada do placar."""
+    entry_vencedor.delete(0, tk.END)
+    entry_perdedor.delete(0, tk.END)
+    entry_placar_vencedor.delete(0, tk.END)
+    entry_placar_perdedor.delete(0, tk.END)
+
+# Interface gráfica com Tkinter
+window = tk.Tk()
+window.title("Gerenciamento de Fila Ping Pong")
+
+# Widgets para adicionar jogadores
+frame_add_jogador = tk.Frame(window)
+frame_add_jogador.pack(pady=10)
+
+lbl_add_jogador = tk.Label(frame_add_jogador, text="Adicionar Jogador:")
+lbl_add_jogador.pack(side=tk.LEFT)
+
+entry_jogador = tk.Entry(frame_add_jogador)
+entry_jogador.pack(side=tk.LEFT)
+
+btn_add_jogador = tk.Button(frame_add_jogador, text="Adicionar", command=lambda: adicionar_jogador(entry_jogador.get()))
+btn_add_jogador.pack(side=tk.LEFT)
+
+# Widgets para remover jogadores
+frame_remove_jogador = tk.Frame(window)
+frame_remove_jogador.pack(pady=10)
+
+lbl_remove_jogador = tk.Label(frame_remove_jogador, text="Remover Jogador:")
+lbl_remove_jogador.pack(side=tk.LEFT)
+
+entry_remove_jogador = tk.Entry(frame_remove_jogador)
+entry_remove_jogador.pack(side=tk.LEFT)
+
+btn_remove_jogador = tk.Button(frame_remove_jogador, text="Remover", command=lambda: remover_jogador(entry_remove_jogador.get()))
+btn_remove_jogador.pack(side=tk.LEFT)
+
+# Exibição da fila com checkboxes
+frame_checkboxes = tk.Frame(window)
+frame_checkboxes.pack(pady=10)
+
+# Exibição da fila
+lbl_fila_titulo = tk.Label(window, text="Fila de Jogadores:")
+lbl_fila_titulo.pack()
+
+lbl_fila = tk.Label(window, text="", font=("Arial", 12)
